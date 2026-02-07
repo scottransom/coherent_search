@@ -1,0 +1,14 @@
+[workspace]
+authors = ["Scott Ransom <sransom@nrao.edu>"]
+channels = ["conda-forge"]
+name = "coherent_search"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.14.3,<3.15"
+numpy = ">=2.4.2,<3"
+ruff = ">=0.15.0,<0.16"
+pytest = ">=9.0.2,<10"
