@@ -83,4 +83,38 @@ def fourier_interp_multi(rs: npt.NDArray, ft: npt.NDArray, m: int) -> npt.NDArra
 def FFT_fourier_interp(
     lobin: int, numbins: int, numbetween: int, ft: npt.NDArray, m: int
 ) -> npt.NDArray:
-    return ft
+    """
+    Perform Fourier interpolation for many frequencies using FFT correlation
+
+    Parameters:
+        lobin (int): The integer FFT bin number for the lowest return value.
+        numbins (int): The number of returned FFT bins to cover with interpolation.
+        numbetween (int): The number of interpolated points between each FFT bin.
+        ft (np.ndarray): Fourier transform array.
+        m (int): Number of interpolation coefficients (even).
+
+    Returns:
+        np.ndarray: Interpolated Fourier amplitudes at requested frequencies.
+                    (freqs = lobin + np.arange(numbins * numbetween) / numbetween)
+    """
+
+    m2 = m // 2
+    # Get and prep the Fourier amplitudes
+    numftbins = (numbins + m) * numbetween
+    # The FFT length will be the next power-of-two bigger than numftbins
+    ftlen = 2 ** int(np.ceil(np.log2(numftbins)))
+    ftarr = np.zeros(ftlen, dtype=np.complex128)
+    tmplobin = lobin - m2
+    tmphibin = lobin + numbins + m2
+    ftarr[np.arange(numbins + m) * numbetween] = ft[tmplobin:tmphibin]
+
+    # Get and prep the interpolation coefficients
+    coeffarr = np.zeros(ftlen, dtype=np.complex128)
+    offsets = np.arange(numbetween * m2) / numbetween
+    coeffarr[: len(offsets)] = np.sinc(offsets) * np.exp(-1j * np.pi * offsets)
+    offsets = (-(offsets + 1.0 / numbetween))[::-1]
+    coeffarr[-len(offsets) :] = np.sinc(offsets) * np.exp(-1j * np.pi * offsets)
+
+    # Perform the complex cross correlation
+    corr = np.fft.ifft(np.fft.fft(ftarr) * np.fft.fft(coeffarr).conjugate())
+    return corr[m2 * numbetween : (m2 + numbins) * numbetween]
