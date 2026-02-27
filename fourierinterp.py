@@ -80,7 +80,7 @@ def fourier_interp_multi(rs: npt.NDArray, ft: npt.NDArray, m: int) -> npt.NDArra
     return np.vecdot(coeffs, bins)
 
 
-def FFT_fourier_interp(
+def fourier_interp_FFT(
     lobin: int, numbins: int, numbetween: int, ft: npt.NDArray, m: int
 ) -> npt.NDArray:
     """

@@ -5,7 +5,7 @@ from coherent_search.fourierinterp import (
     get_nearby_fourier_bins,
     fourier_interp,
     fourier_interp_multi,
-    FFT_fourier_interp,
+    fourier_interp_FFT,
 )
 
 
@@ -156,6 +156,6 @@ def test_fourier_interp():
 
     m = 16
     v1 = fourier_interp_multi(rs, ft, m)
-    v2 = FFT_fourier_interp(12400, 1, len(rs), ft, m)
+    v2 = fourier_interp_FFT(12400, 1, len(rs), ft, m)
     np.testing.assert_allclose(v1.real, v2.real, rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(v1.imag, v2.imag, rtol=1e-5, atol=1e-7)
