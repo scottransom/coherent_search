@@ -35,9 +35,8 @@ def get_nearby_fourier_bins(r: float, ft: npt.NDArray, m: int) -> npt.NDArray:
         np.ndarray: Array of complex Fourier amplitudes.
     """
     assert m % 2 == 0, "m must be even"
-    r_int = int(np.floor(r)) + 1 if r == np.floor(r) else int(np.ceil(r))
-    half_m = m // 2
-    return ft[r_int - half_m : r_int + half_m]
+    r_int = int(np.floor(r + 1e-15)) + 1
+    return ft[r_int - m // 2 : r_int + m // 2]
 
 
 def fourier_interp(r: float, ft: npt.NDArray, m: int) -> complex:
@@ -57,3 +56,31 @@ def fourier_interp(r: float, ft: npt.NDArray, m: int) -> complex:
     coeffs = get_fourier_interp_coeffs(r % 1.0, m)
     bins = get_nearby_fourier_bins(r, ft, m)
     return np.dot(coeffs.conjugate(), bins)
+
+
+def fourier_interp_multi(rs: npt.NDArray, ft: npt.NDArray, m: int) -> npt.NDArray:
+    """
+    Perform Fourier interpolation at multiple real-valued Fourier frequencies
+
+    Parameters:
+        rs (np.ndarray): Real-valued Fourier frequencies to interpolate (all between 2 bins).
+        ft (np.ndarray): Fourier transform array.
+        m (int): Number of interpolation coefficients (even).
+
+    Returns:
+        np.ndarray: Interpolated Fourier amplitudes at frequencies rs.
+    """
+    lo_rint = int(np.floor(rs.min() + 1e-15))
+    hi_rint = int(np.floor(rs.max() + 1e-15))
+    assert hi_rint - lo_rint == 0, "rs must all be between 2 Fourier bins"
+    assert m % 2 == 0, "m must be even"
+    offsets = (rs % 1.0)[:, np.newaxis] - np.arange(-m // 2 + 1, m // 2 + 1)
+    coeffs = np.sinc(offsets) * np.exp(1j * np.pi * offsets)
+    bins = get_nearby_fourier_bins(rs[0], ft, m)
+    return np.vecdot(coeffs, bins)
+
+
+def FFT_fourier_interp(
+    lobin: int, numbins: int, numbetween: int, ft: npt.NDArray, m: int
+) -> npt.NDArray:
+    return ft

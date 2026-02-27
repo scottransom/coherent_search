@@ -4,6 +4,7 @@ from coherent_search.fourierinterp import (
     get_fourier_interp_coeffs,
     get_nearby_fourier_bins,
     fourier_interp,
+    fourier_interp_multi,
 )
 
 
@@ -123,6 +124,11 @@ def test_fourier_interp():
         interp_value.imag, expected_value.imag, rtol=1e-2, atol=1e-3
     )
 
+    rs = np.floor(r) + np.linspace(0.0, 1.0, 21)[:-1]
+    iv2 = fourier_interp_multi(rs, ft, m)
+    assert interp_value.real == iv2[11].real
+    assert interp_value.imag == iv2[11].imag
+
     r = 12400.00
     N = 32768
     phs = np.pi / 4.0
@@ -141,3 +147,8 @@ def test_fourier_interp():
     np.testing.assert_allclose(
         interp_value.imag, expected_value.imag, rtol=1e-2, atol=1e-3
     )
+
+    rs = np.floor(r) + np.linspace(0.0, 1.0, 21)[:-1]
+    iv2 = fourier_interp_multi(rs, ft, m)
+    assert interp_value.real == iv2[0].real
+    assert interp_value.imag == iv2[0].imag
