@@ -1,19 +1,19 @@
 import numpy as np
-
+import coherent_search.utils as utils
 from coherent_search.fourierinterp import (
-    get_fourier_interp_coeffs,
+    get_finterp_coeffs,
     get_nearby_fourier_bins,
     fourier_interp,
-    fourier_interp_multi,
-    fourier_interp_FFT,
+    finterp_multi,
+    finterp_FFT,
 )
 
 
-def test_get_fourier_interp_coeffs():
+def test_get_finterp_coeffs():
     # Test with m=10 and dr=0.1
     m = 10
     dr = 0.1
-    coeffs = get_fourier_interp_coeffs(dr, m)
+    coeffs = get_finterp_coeffs(dr, m)
 
     # Can calculate expected values using gen_r_response() from PRESTO:
     # import presto.presto as pp
@@ -41,7 +41,7 @@ def test_get_fourier_interp_coeffs():
     # Test with m=6 and dr=0.0
     m = 6
     dr = 0.0
-    coeffs = get_fourier_interp_coeffs(dr, m)
+    coeffs = get_finterp_coeffs(dr, m)
 
     expected_coeffs = np.array(
         [0.0 + 0.0j, 0 + 0.0j, 1.0 + 0.0j, 0.0 + 0.0j, 0.0 + 0.0j, 0.0 + 0.0j],
@@ -126,7 +126,7 @@ def test_fourier_interp():
     )
 
     rs = np.floor(r) + np.linspace(0.0, 1.0, 21)[:-1]
-    iv2 = fourier_interp_multi(rs, ft, m)
+    iv2 = finterp_multi(rs, ft, m)
     assert interp_value.real == iv2[11].real
     assert interp_value.imag == iv2[11].imag
 
@@ -150,12 +150,12 @@ def test_fourier_interp():
     )
 
     rs = np.floor(r) + np.linspace(0.0, 1.0, 21)[:-1]
-    iv2 = fourier_interp_multi(rs, ft, m)
+    iv2 = finterp_multi(rs, ft, m)
     assert interp_value.real == iv2[0].real
     assert interp_value.imag == iv2[0].imag
 
     m = 16
-    v1 = fourier_interp_multi(rs, ft, m)
-    v2 = fourier_interp_FFT(12400, 1, len(rs), ft, m)
+    v1 = finterp_multi(rs, ft, m)
+    v2 = finterp_FFT(12400, 1, len(rs), ft, m)
     np.testing.assert_allclose(v1.real, v2.real, rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(v1.imag, v2.imag, rtol=1e-5, atol=1e-7)
