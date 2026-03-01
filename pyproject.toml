@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coherent_search"
+version = "0.1.0"
+description = "Pulsar search using coherent harmonic summing and only Numpy"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Scott Ransom", email = "sransom@nrao.edu"}
+]
+keywords = ["pulsar", "search"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+ dependencies = [ # List runtime dependencies
+    "numpy>=1.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=6.0", "black", "flake8", "mypy"]
+
+[project.urls]
+Homepage = "https://github.com/scottransom/coherent_search"

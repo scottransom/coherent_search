@@ -1,5 +1,4 @@
 import numpy as np
-import coherent_search.utils as utils
 from coherent_search.fourierinterp import (
     get_finterp_coeffs,
     get_nearby_fourier_bins,

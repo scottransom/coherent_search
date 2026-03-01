@@ -1,5 +1,10 @@
-# pixi environments
 .pixi/*
 !.pixi/config.toml
 pixi.lock
 __pycache__/
+examples/*.png
+examples/*.dat
+examples/*.fft
+examples/*.inf
+examples/*.pfd*
+src/coherent_search.egg-info/
