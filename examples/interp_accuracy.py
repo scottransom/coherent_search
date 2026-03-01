@@ -86,5 +86,6 @@ plt.ylabel("Relative Error")
 plt.title("Interpolation Accuracy vs Number of Points Between Bins")
 plt.legend()
 plt.grid()
+plt.savefig("interp_accuracy.png")
 plt.show()
 # %%
