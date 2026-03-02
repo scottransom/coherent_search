@@ -139,7 +139,7 @@ If no output candidate file name is given, the results will be written to stdout
         if len(candidates) > 0:
             for ii in candidates:
                 print(
-                    f"Candidate at {rstosearch[ii]:.6f} Hz with S/N {maxmetric[ii]:.2f}"
+                    f"Candidate at {rstosearch[ii] / ft.T:.6f} Hz with S/N {maxmetric[ii]:.2f}"
                 )
 
         currentlobin += numtosearch * args.hidr / args.nharms
