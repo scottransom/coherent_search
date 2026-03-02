@@ -94,7 +94,8 @@ If no output candidate file name is given, the results will be written to stdout
     # Open the PRESTO FFT file
     ft = utils.fftfile(args.fftfile[0])
 
-    # Calculate the cached Fourier interpolation coefficients for the given numbetween, nharms, and fftlen
+    # Calculate the cached Fourier interpolation coefficients for the
+    # given numbetween, nharms, and fftlen
     coeffs = fi.get_finterp_FFT_coeffs(args.numbetween, m, args.fftlen)
 
     # Prep the FouierInterpolator class instances
@@ -110,14 +111,10 @@ If no output candidate file name is given, the results will be written to stdout
     currentlobin = args.lofreq * ft.T
     if args.lobin != 100:
         currentlobin = args.lobin
-    rstosearch = np.arange(numtosearch) * args.hidr / args.nharms + currentlobin
-    numiters = (
-        int(
-            (args.hifreq * ft.T - currentlobin)
-            / (numtosearch * args.hidr / args.nharms)
-        )
-        + 1
-    )
+    # Fourier freq step-size at the fundamental frequency
+    lodr = args.hidr / args.nharms
+    rstosearch = np.arange(numtosearch) * lodr + currentlobin
+    numiters = int((args.hifreq * ft.T - currentlobin) / (numtosearch * lodr)) + 1
 
     # Walk through the FFT file
     for _ in tqdm(range(numiters)):
@@ -126,10 +123,14 @@ If no output candidate file name is given, the results will be written to stdout
         for ii in range(1, args.nharms + 1):
             ftprofs[:, ii] = fis[ii].interpolated_ftamps(rstosearch * ii)
 
-        # Inverse FFT the interpolated Fourier amplitudes to get the pulse profiles at each trial frequency
+        # Inverse FFT the interpolated Fourier amplitudes to get the
+        # pulse profiles at each trial frequency
+
+        # TODO: need to check if the transpose of this is faster
         profs = np.fft.irfft(ftprofs, axis=1)
 
-        # Calculate the coherent harmonic fold metric (max profile value) at each trial frequency
+        # Calculate the coherent harmonic fold metric (max profile value)
+        # at each trial frequency
         maxmetric = np.max(profs, axis=1) / np.abs(np.min(profs, axis=1))
 
         # Pick candidates above the threshold and save them to a list
@@ -140,8 +141,8 @@ If no output candidate file name is given, the results will be written to stdout
                     f"Candidate at {rstosearch[ii] / ft.T:.6f} Hz with S/N {maxmetric[ii]:.2f}"
                 )
 
-        currentlobin += numtosearch * args.hidr / args.nharms
-        rstosearch = np.arange(numtosearch) * args.hidr / args.nharms + currentlobin
+        currentlobin += numtosearch * lodr
+        rstosearch = np.arange(numtosearch) * lodr + currentlobin
 
 
 if __name__ == "__main__":
