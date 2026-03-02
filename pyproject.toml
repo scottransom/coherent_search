@@ -34,3 +34,6 @@ dev = ["pytest>=6.0", "black", "flake8", "mypy"]
 
 [project.urls]
 Homepage = "https://github.com/scottransom/coherent_search"
+
+[project.scripts]
+coherent_search = "coherent_search.coherent_search:main_cli"

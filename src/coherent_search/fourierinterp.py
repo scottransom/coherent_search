@@ -162,3 +162,103 @@ def finterp_FFT(
     # Perform the complex cross correlation
     corr = np.fft.ifft(np.fft.fft(ftarr) * coeffs)
     return corr[m2 * numbetween : (m2 + numbins) * numbetween]
+
+
+class FourierInterpolator:
+    "Class to perform running Fourier interpolation through a PRESTO FFT file"
+
+    def __init__(
+        self,
+        ft: utils.fftfile,
+        lobin: int,
+        numbetween: int,
+        m: int,
+        fftlen: int,
+        coeffs=None,
+    ) -> None:
+        """Build a Fourier interpolator that will walk through an FFT
+
+        Parameters
+        ----------
+        ft : utils.fftfile
+            A PRESTO FFT file object to interpolate through.
+        lobin : int
+            The integer FFT bin number for the lowest return value.
+        numbetween : int
+            The number of interpolated points between each FFT bin.
+        m : int
+            Number of interpolation coefficients (even).
+        fftlen : int
+            Length of the FFT to use for correlation (must be >= numbetween * m).
+        coeffs : _type_, optional
+            Precomputed Fourier interpolation coefficients for numbetween and m, by default None
+        """
+        self.ft = ft
+        self.lobin = lobin
+        self.numbetween = numbetween
+        self.m = m
+        self.fftlen = fftlen
+        # This is the number of full FFT bins we will interpolate each time
+        self.numbins = (fftlen // numbetween) - m - 1
+        self.nextbin = lobin + self.numbins
+        if coeffs is None:
+            self.coeffs = get_finterp_FFT_coeffs(numbetween, m, fftlen)
+        else:
+            self.coeffs = coeffs
+        self.ftamps = self.get_ftamps(lobin)
+
+    def get_ftamps(self, lobin: int) -> np.ndarray:
+        """Get the Fourier-interpolated FFT amplitudes starting at lobin
+
+        Parameters
+        ----------
+        lobin : int
+            The integer FFT bin number for the lowest return value.
+
+        Returns
+        -------
+        np.ndarray
+            The Fourier-interpolated FFT amplitudes starting at lobin.
+        """
+        self._rs = (
+            np.arange(self.numbins * self.numbetween) / self.numbetween + self.lobin
+        )
+        if lobin + self.numbins + self.m // 2 >= self.ft.N // 2:
+            return np.zeros_like(self._rs, dtype=np.complex128)
+        else:
+            return finterp_FFT(
+                lobin,
+                self.numbins,
+                self.numbetween,
+                self.ft.amps,
+                self.m,
+                coeffs=self.coeffs,
+            )
+
+    @property
+    def rs(self) -> np.ndarray:
+        """The real-valued Fourier frequencies (bins) for the current interpolation"""
+        if not hasattr(self, "_rs"):
+            self._rs = (
+                np.arange(self.numbins * self.numbetween) / self.numbetween + self.lobin
+            )
+        return self._rs
+
+    def interpolated_ftamps(self, rs: np.ndarray) -> np.ndarray:
+        """Return the linear-interpolated Fourier amplitudes at the Fourier frequencies rs
+
+        Parameters
+        ----------
+        rs : np.ndarray
+            Fourier frequencies at which to interpolate the current FFT amplitudes.
+
+        Returns
+        -------
+        np.ndarray
+            The linear-interpolated FFT amplitudes at the given Fourier frequencies rs.
+        """
+        if rs.max() > self.rs[-1]:
+            self.lobin = int(np.floor(rs.min()))
+            self.ftamps = self.get_ftamps(self.lobin)
+            self.nextbin = self.lobin + self.numbins
+        return np.interp(rs, self.rs, self.ftamps)
