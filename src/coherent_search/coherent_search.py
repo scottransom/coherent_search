@@ -31,39 +31,35 @@ If no output candidate file name is given, the results will be written to stdout
         "-o", "--outputfilenm", type=str, help="Output filename to record candidates"
     )
     parser.add_argument(
-        "-c",
+        "-n",
+        "--nharms",
+        type=int,
+        default=32,
+        help="Number of harmonics to sum. A power-of-two. (default=32)",
+    )
+    parser.add_argument(
         "--ncands",
         type=int,
         default=100,
         help="Maximum number of candidates to return (default=100)",
     )
     parser.add_argument(
-        "-l",
         "--lobin",
         type=int,
         default=100,
         help="Lowest frequency bin to search (default=100)",
     )
     parser.add_argument(
-        "-f",
         "--lofreq",
         type=float,
         default=0.1,
         help="Lowest frequency (in Hz) to search (default=0.1)",
     )
     parser.add_argument(
-        "-x",
         "--hifreq",
         type=float,
         default=100.0,
         help="Highest frequency (in Hz) to search (default=100.0)",
-    )
-    parser.add_argument(
-        "-n",
-        "--nharms",
-        type=int,
-        default=32,
-        help="Number of harmonics to sum. A power-of-two. (default=32)",
     )
     parser.add_argument(
         "--hidr",
@@ -84,7 +80,6 @@ If no output candidate file name is given, the results will be written to stdout
         help="Number bins in FFTs for Fourier interpolation (default=16384)",
     )
     parser.add_argument(
-        "-r",
         "--noremove",
         action="store_true",
         help="Do not filter duplicate or harmonically-related candidates",
@@ -111,7 +106,10 @@ If no output candidate file name is given, the results will be written to stdout
 
     # Number of bins to search each iteration
     numtosearch = 1024
-    currentlobin = args.lobin
+    # Prioritize --lofreq if given, otherwise use --lobin
+    currentlobin = args.lofreq * ft.T
+    if args.lobin != 100:
+        currentlobin = args.lobin
     rstosearch = np.arange(numtosearch) * args.hidr / args.nharms + currentlobin
     numiters = (
         int(
