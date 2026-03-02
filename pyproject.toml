@@ -27,6 +27,7 @@ classifiers = [
 
  dependencies = [ # List runtime dependencies
     "numpy>=1.20",
+    "tqdm>=4.0"
 ]
 
 [project.optional-dependencies]

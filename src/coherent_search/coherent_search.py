@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 import coherent_search.utils as utils
 import coherent_search.fourierinterp as fi
+from tqdm import tqdm
 
 
 def main_cli():
@@ -62,7 +63,13 @@ If no output candidate file name is given, the results will be written to stdout
         "--nharms",
         type=int,
         default=32,
-        help="Maximum number of harmonics to sum. A power-of-two. (default=32)",
+        help="Number of harmonics to sum. A power-of-two. (default=32)",
+    )
+    parser.add_argument(
+        "--hidr",
+        type=float,
+        default=0.5,
+        help="Fourier bin resolution at highest harmonic (default=0.5)",
     )
     parser.add_argument(
         "--numbetween",
@@ -103,11 +110,19 @@ If no output candidate file name is given, the results will be written to stdout
         )
 
     # Number of bins to search each iteration
-    numtosearch = fis[args.nharms].numbins * 2  # interbinning the highest harmonic
-    rstosearch = np.arange(numtosearch) * 0.5 / args.nharms + args.lobin
+    numtosearch = 1024
+    currentlobin = args.lobin
+    rstosearch = np.arange(numtosearch) * args.hidr / args.nharms + currentlobin
+    numiters = (
+        int(
+            (args.hifreq * ft.T - currentlobin)
+            / (numtosearch * args.hidr / args.nharms)
+        )
+        + 1
+    )
 
     # Walk through the FFT file
-    while fis[1].nextbin < args.hifreq * ft.T:
+    for _ in tqdm(range(numiters)):
         # Get the Fourier-interpolated FFT amplitudes for each harmonic
         ftprofs = np.zeros((numtosearch, args.nharms + 1), dtype=np.complex128)
         for ii in range(1, args.nharms + 1):
@@ -121,9 +136,14 @@ If no output candidate file name is given, the results will be written to stdout
 
         # Pick candidates above the threshold and save them to a list
         candidates = np.where(maxmetric > args.threshold)[0]
-        print(candidates)
+        if len(candidates) > 0:
+            for ii in candidates:
+                print(
+                    f"Candidate at {rstosearch[ii]:.6f} Hz with S/N {maxmetric[ii]:.2f}"
+                )
 
-        rstosearch += numtosearch * 0.5 / args.nharms
+        currentlobin += numtosearch * args.hidr / args.nharms
+        rstosearch = np.arange(numtosearch) * args.hidr / args.nharms + currentlobin
 
 
 if __name__ == "__main__":
