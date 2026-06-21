@@ -8,6 +8,45 @@ import coherent_search.fourierinterp as fi
 from tqdm import tqdm
 
 
+def snr_metric(profs, ngoodbins):
+    """Compute a signal-to-noise metric that is pulse-width sensitive
+
+    This is based on the sigma definition as in single_pulse_search.py:
+       sigma = sum(signal-bkgd_level)/RMS/sqrt(pulsewidth)
+    where we compute sqrt(pulsewidth) using the standard deviation of the location of
+    pulse bins with values > 0.5Max from the Max bin.
+    The stdev of the noise in the profiles (RMS) is expected to be ~1/sqrt(2*(nharms+1)),
+    although it is the nharms that actually contain real Fourier data (i.e. no padding).
+    We measure the off-pulse level using the median of the profile, and then sum
+    everything above that level for the signal.
+    Note that the "bottleneck" module has a fast numpy median function
+    https://github.com/pydata/bottleneck
+
+    Parameters
+    ----------
+    profs : np.ndarray
+        A 2D array of (nprofs, nbins) pulse profiles.
+    ngoodbins : int
+        The number of good harmonics in the profiles (<= nbins/2+1)
+    """
+    nprofs, nbins = profs.shape
+    bins = np.arange(nbins)
+    meds = np.median(profs, axis=1)
+    profs -= meds[:, np.newaxis]
+    mxinds = np.argmax(profs, axis=1)
+    mxs = profs[np.arange(nprofs)[:, np.newaxis], mxinds[:, np.newaxis]]
+    rms = 1.0 / np.sqrt(2 * ngoodbins + 1)
+    signal = profs.sum(axis=1)
+    widths = np.zeros(nprofs)
+    for ii in range(nprofs):  # Would like to get rid of this loop
+        hibins = bins[profs[ii] > 0.5 * mxs[ii]]
+        bindiffs = mxinds[ii] - hibins
+        bindiffs[bindiffs > nbins // 2] -= nbins
+        bindiffs[bindiffs < -nbins // 2] += nbins
+        widths[ii] = max(np.sqrt(np.sum(bindiffs**2)), 1)
+    return signal / rms / np.sqrt(widths)
+
+
 def main_cli():
     parser = argparse.ArgumentParser(
         description="Search a PRESTO-style FFT file for pulsations using coherent harmonic folding.",
@@ -131,14 +170,15 @@ If no output candidate file name is given, the results will be written to stdout
 
         # Calculate the coherent harmonic fold metric (max profile value)
         # at each trial frequency
-        maxmetric = np.max(profs, axis=1) / np.abs(np.min(profs, axis=1))
+        # metric = np.max(profs, axis=1) / np.abs(np.min(profs, axis=1))
+        metric = snr_metric(profs, min(ft.N / 2 / rstosearch.mean(), args.nharms))
 
         # Pick candidates above the threshold and save them to a list
-        candidates = np.where(maxmetric > args.threshold)[0]
+        candidates = np.where(metric > args.threshold)[0]
         if len(candidates) > 0:
             for ii in candidates:
                 print(
-                    f"Candidate at {rstosearch[ii] / ft.T:.6f} Hz with S/N {maxmetric[ii]:.2f}"
+                    f"Candidate at {rstosearch[ii] / ft.T:.6f} Hz with S/N {metric[ii]:.2f}"
                 )
 
         currentlobin += numtosearch * lodr
