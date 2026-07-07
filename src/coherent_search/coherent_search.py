@@ -8,19 +8,27 @@ import coherent_search.fourierinterp as fi
 from tqdm import tqdm
 
 
-def snr_metric(profs, ngoodbins):
+def snr_metric(profs, ngoodbins, xsignal=0.2, metric="non", p=0.5):
     """Compute a signal-to-noise metric that is pulse-width sensitive
 
     This is based on the sigma definition as in single_pulse_search.py:
-       sigma = sum(signal-bkgd_level)/RMS/sqrt(pulsewidth)
-    where we compute sqrt(pulsewidth) using the standard deviation of the location of
-    pulse bins with values > 0.5Max from the Max bin.
-    The stdev of the noise in the profiles (RMS) is expected to be ~1/sqrt(2*(nharms+1)),
-    although it is the nharms that actually contain real Fourier data (i.e. no padding).
-    We measure the off-pulse level using the median of the profile, and then sum
-    everything above that level for the signal.
-    Note that the "bottleneck" module has a fast numpy median function
-    https://github.com/pydata/bottleneck
+       metric = sum_on(signal - bkgd_level) / RMS / width**p
+    The off-pulse level is the median of the profile.  The "signal" is the summed
+    excess over that median for every *on-pulse* bin -- the bins that rise above
+    `xsignal` of the peak-over-median height.  Summing only this on-pulse set
+    (rather than the whole zero-mean profile) keeps the signal a stable measure of
+    pulsed flux that does not grow with nbins, while still capturing multi-component
+    pulses (e.g. two narrow peaks with a valley between them) that a boxcar sum
+    would miss.  The RMS of the profile noise is expected to be ~1/sqrt(2*ngoodbins+1).
+
+    The `width` penalty is taken over that same on-pulse set:
+      metric="non": width = N_on, the count of on-pulse bins (a duty-cycle penalty).
+        p=0.5 is the calibrated matched-filter normalization; larger p penalizes
+        high-duty-cycle signals (broad / many-toothed RFI) more, while leaving
+        narrow pulses (even separated multi-component or interpulse) alone.
+      metric="sd2": width = sum(d**2), the summed squared modular phase distance of
+        the on-pulse bins from the peak.  Larger p penalizes phase spread harder,
+        but also down-weights genuinely separated components.
 
     Parameters
     ----------
@@ -28,6 +36,12 @@ def snr_metric(profs, ngoodbins):
         A 2D array of (nprofs, nbins) pulse profiles.
     ngoodbins : int
         The number of good harmonics in the profiles (<= nbins/2+1)
+    xsignal : float
+        Fraction of the peak-over-median height above which a bin is "on-pulse".
+    metric : str
+        "non" (N_on, duty cycle) or "sd2" (sum d**2, phase spread).
+    p : float
+        Exponent on the width penalty (default 0.5).
     """
     nprofs, nbins = profs.shape
     bins = np.arange(nbins)
@@ -36,15 +50,21 @@ def snr_metric(profs, ngoodbins):
     mxinds = np.argmax(profs, axis=1)
     mxs = profs[np.arange(nprofs)[:, np.newaxis], mxinds[:, np.newaxis]]
     rms = 1.0 / np.sqrt(2 * ngoodbins + 1)
-    signal = profs.sum(axis=1)
-    widths = np.zeros(nprofs)
-    for ii in range(nprofs):  # Would like to get rid of this loop
-        hibins = bins[profs[ii] > 0.5 * mxs[ii]]
-        bindiffs = mxinds[ii] - hibins
-        bindiffs[bindiffs > nbins // 2] -= nbins
-        bindiffs[bindiffs < -nbins // 2] += nbins
-        widths[ii] = max(np.sqrt(np.sum(bindiffs**2)), 1)
-    return signal / rms / np.sqrt(widths)
+    onmask = profs > xsignal * mxs
+    signal = np.where(onmask, profs, 0.0).sum(axis=1)
+    if metric == "non":
+        width = np.maximum(onmask.sum(axis=1), 1.0)
+    elif metric == "sd2":
+        width = np.ones(nprofs)
+        for ii in range(nprofs):  # Would like to get rid of this loop
+            hibins = bins[onmask[ii]]
+            bindiffs = mxinds[ii] - hibins
+            bindiffs[bindiffs > nbins // 2] -= nbins
+            bindiffs[bindiffs < -nbins // 2] += nbins
+            width[ii] = max(np.sum(bindiffs**2), 1)
+    else:
+        raise ValueError("metric must be 'non' or 'sd2'")
+    return signal / rms / width**p
 
 
 def main_cli():
