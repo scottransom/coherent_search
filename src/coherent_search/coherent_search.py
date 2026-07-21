@@ -1,6 +1,5 @@
 # %%
 import sys
-import os
 import argparse
 import numpy as np
 import coherent_search.utils as utils
@@ -8,63 +7,90 @@ import coherent_search.fourierinterp as fi
 from tqdm import tqdm
 
 
-def snr_metric(profs, ngoodbins, xsignal=0.2, metric="non", p=0.5):
-    """Compute a signal-to-noise metric that is pulse-width sensitive
+def boxcar_widths(nbins, fsp=1.5, maxfrac=0.3):
+    """Geometric bank of boxcar widths (in profile bins) for an nbins-bin profile.
 
-    This is based on the sigma definition as in single_pulse_search.py:
-       metric = sum_on(signal - bkgd_level) / RMS / width**p
-    The off-pulse level is the median of the profile.  The "signal" is the summed
-    excess over that median for every *on-pulse* bin -- the bins that rise above
-    `xsignal` of the peak-over-median height.  Summing only this on-pulse set
-    (rather than the whole zero-mean profile) keeps the signal a stable measure of
-    pulsed flux that does not grow with nbins, while still capturing multi-component
-    pulses (e.g. two narrow peaks with a valley between them) that a boxcar sum
-    would miss.  The RMS of the profile noise is expected to be ~1/sqrt(2*ngoodbins+1).
+    w0 = 1, w_{k+1} = max(floor(fsp * w_k), w_k + 1), truncated at
+    floor(maxfrac * nbins) (the widest duty cycle worth testing).  The fsp=1.5
+    recurrence is riptide's default (Morello et al. 2020) and reproduces the
+    hand-picked [1, 2, 3, 4, 6, 9, 13, 19, ...] sequence.  Always contains at
+    least the width-1 (single-bin) filter.
+    """
+    wmax = max(1, int(maxfrac * nbins))
+    widths = []
+    w = 1
+    while w <= wmax:
+        widths.append(w)
+        w = max(int(fsp * w), w + 1)
+    return widths
 
-    The `width` penalty is taken over that same on-pulse set:
-      metric="non": width = N_on, the count of on-pulse bins (a duty-cycle penalty).
-        p=0.5 is the calibrated matched-filter normalization; larger p penalizes
-        high-duty-cycle signals (broad / many-toothed RFI) more, while leaving
-        narrow pulses (even separated multi-component or interpulse) alone.
-      metric="sd2": width = sum(d**2), the summed squared modular phase distance of
-        the on-pulse bins from the peak.  Larger p penalizes phase spread harder,
-        but also down-weights genuinely separated components.
+
+def snr_metric(profs, fsp=1.5, maxfrac=0.3):
+    """Peak boxcar matched-filter signal-to-noise metric for each profile.
+
+    Correlates each profile with a fixed bank of top-hat (boxcar) filters and
+    returns the peak matched-filter S/N,
+
+        metric = max_{w, phase} (sum_{i=phase}^{phase+w-1}(P_i - median)) / (sigma * sqrt(w))
+
+    computed with the riptide prefix-sum "strided differences" (Morello et al.
+    2020, MNRAS 497, 4654, Sec. 5.4): one circular prefix sum of the
+    median-subtracted profile, after which every boxcar sum is a two-index
+    difference.  Because the widths are chosen a priori (not from the data), a
+    width-w boxcar over white noise is N(0, w*sigma**2), so dividing by sqrt(w)
+    makes every (phase, width) trial exactly N(0, 1): the peak over trials follows
+    analytic extreme-value statistics with a known, ~nbins-flat trials factor, and
+    there is no sqrt(nbins) noise floor to normalize away (which the older on-pulse
+    metrics suffered, biasing a fixed threshold toward high-bin-count profiles).
+
+    The per-bin noise `sigma` is estimated once for the whole block (1.4826 * MAD
+    pooled over all profiles), not per profile: a per-profile MAD (only nbins
+    samples) has ~0.76/sqrt(nbins) relative error that would multiply straight into
+    every S/N and re-inflate the small-nbins tail.  Pooling thousands of block bins
+    drops its variance below a percent, and being median-based it is immune to the
+    rare signal/RFI bin.  The metric is scale-free (a ratio of two
+    linear-in-amplitude quantities), so it does not care whether `profs` came from a
+    normalized or unnormalized inverse FFT.
 
     Parameters
     ----------
     profs : np.ndarray
         A 2D array of (nprofs, nbins) pulse profiles.
-    ngoodbins : int
-        The number of good harmonics in the profiles (<= nbins/2+1)
-    xsignal : float
-        Fraction of the peak-over-median height above which a bin is "on-pulse".
-    metric : str
-        "non" (N_on, duty cycle) or "sd2" (sum d**2, phase spread).
-    p : float
-        Exponent on the width penalty (default 0.5).
+    fsp : float
+        Geometric width-recurrence factor for the boxcar bank (default 1.5).
+    maxfrac : float
+        Widest boxcar as a fraction of nbins (default 0.3).
+
+    Returns
+    -------
+    np.ndarray
+        The peak boxcar S/N for each of the nprofs profiles (0.0 for a degenerate,
+        flat block).
     """
     nprofs, nbins = profs.shape
-    bins = np.arange(nbins)
-    meds = np.median(profs, axis=1)
-    profs -= meds[:, np.newaxis]
-    mxinds = np.argmax(profs, axis=1)
-    mxs = profs[np.arange(nprofs)[:, np.newaxis], mxinds[:, np.newaxis]]
-    rms = 1.0 / np.sqrt(2 * ngoodbins + 1)
-    onmask = profs > xsignal * mxs
-    signal = np.where(onmask, profs, 0.0).sum(axis=1)
-    if metric == "non":
-        width = np.maximum(onmask.sum(axis=1), 1.0)
-    elif metric == "sd2":
-        width = np.ones(nprofs)
-        for ii in range(nprofs):  # Would like to get rid of this loop
-            hibins = bins[onmask[ii]]
-            bindiffs = mxinds[ii] - hibins
-            bindiffs[bindiffs > nbins // 2] -= nbins
-            bindiffs[bindiffs < -nbins // 2] += nbins
-            width[ii] = max(np.sum(bindiffs**2), 1)
-    else:
-        raise ValueError("metric must be 'non' or 'sd2'")
-    return signal / rms / width**p
+    # One robust per-bin noise sigma for the whole block (pooled MAD).
+    med = np.median(profs)
+    sigma = 1.4826 * np.median(np.abs(profs - med))
+    if sigma <= 0:
+        return np.zeros(nprofs)
+
+    # Per-profile baseline: subtract each profile's own median.
+    prof0 = profs - np.median(profs, axis=1, keepdims=True)
+
+    widths = boxcar_widths(nbins, fsp, maxfrac)
+    wmax = widths[-1]
+    # Circular prefix sum: tile by wmax so wrap-around boxcars read real data.
+    #   csum[:, k] = sum of the first k tiled bins,  boxcar(phase, w) = csum[phase+w] - csum[phase]
+    tiled = np.concatenate((prof0, prof0[:, :wmax]), axis=1)
+    csum = np.zeros((nprofs, nbins + wmax + 1))
+    np.cumsum(tiled, axis=1, out=csum[:, 1:])
+
+    best = np.full(nprofs, -np.inf)
+    for w in widths:
+        # All nbins phases at once; peak matched-filter S/N over phase for this width.
+        boxsums = csum[:, w : w + nbins] - csum[:, :nbins]
+        best = np.maximum(best, boxsums.max(axis=1) / (sigma * np.sqrt(w)))
+    return best
 
 
 def main_cli():
@@ -188,10 +214,9 @@ If no output candidate file name is given, the results will be written to stdout
         # TODO: need to check if the transpose of this is faster
         profs = np.fft.irfft(ftprofs, axis=1)
 
-        # Calculate the coherent harmonic fold metric (max profile value)
-        # at each trial frequency
-        # metric = np.max(profs, axis=1) / np.abs(np.min(profs, axis=1))
-        metric = snr_metric(profs, min(ft.N / 2 / rstosearch.mean(), args.nharms))
+        # Calculate the peak boxcar matched-filter S/N of the coherent harmonic
+        # fold at each trial frequency.
+        metric = snr_metric(profs)
 
         # Pick candidates above the threshold and save them to a list
         candidates = np.where(metric > args.threshold)[0]
