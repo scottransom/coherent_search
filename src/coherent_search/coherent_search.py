@@ -15,8 +15,14 @@ def boxcar_widths(nbins, fsp=1.5, maxfrac=0.3):
     recurrence is riptide's default (Morello et al. 2020) and reproduces the
     hand-picked [1, 2, 3, 4, 6, 9, 13, 19, ...] sequence.  Always contains at
     least the width-1 (single-bin) filter.
+
+    w is additionally capped at nbins - 1, as riptide's check_trial_widths also
+    requires: the zero-mean unit-L2 template of a full-width boxcar is the zero
+    vector.  At the default maxfrac = 0.3 the cap only bites for nbins <= 3.
     """
-    wmax = max(1, int(maxfrac * nbins))
+    if nbins < 2:
+        raise ValueError(f"boxcar_widths needs nbins >= 2, got {nbins}")
+    wmax = min(max(1, int(maxfrac * nbins)), int(nbins) - 1)
     widths = []
     w = 1
     while w <= wmax:
@@ -29,19 +35,43 @@ def snr_metric(profs, fsp=1.5, maxfrac=0.3):
     """Peak boxcar matched-filter signal-to-noise metric for each profile.
 
     Correlates each profile with a fixed bank of top-hat (boxcar) filters and
-    returns the peak matched-filter S/N,
+    returns the peak matched-filter S/N.  This is riptide's statistic exactly
+    (Morello et al. 2020, MNRAS 497, 4654, Sec. 5.4; ``cpp/snr.hpp:snr1``): the
+    width-w template is the boxcar made **zero-mean and unit-L2**,
 
-        metric = max_{w, phase} (sum_{i=phase}^{phase+w-1}(P_i - median)) / (sigma * sqrt(w))
+        height    h = sqrt((n - w) / (n * w))   on the w on-pulse bins
+        baseline -b,  b = w / (n - w) * h       on the other n - w bins
 
-    computed with the riptide prefix-sum "strided differences" (Morello et al.
-    2020, MNRAS 497, 4654, Sec. 5.4): one circular prefix sum of the
-    median-subtracted profile, after which every boxcar sum is a two-index
-    difference.  Because the widths are chosen a priori (not from the data), a
-    width-w boxcar over white noise is N(0, w*sigma**2), so dividing by sqrt(w)
-    makes every (phase, width) trial exactly N(0, 1): the peak over trials follows
-    analytic extreme-value statistics with a known, ~nbins-flat trials factor, and
-    there is no sqrt(nbins) noise floor to normalize away (which the older on-pulse
-    metrics suffered, biasing a fixed threshold toward high-bin-count profiles).
+    so that sum(t) = 0 and sum(t**2) = 1, and the correlation <t, P> / sigma has
+    variance exactly 1 per (phase, width) under white noise.  Since b = d * (h+b)
+    with duty cycle d = w / n, that correlation is
+
+        metric = max_{w, phase} (boxsum(phase, w) - d * P.sum()) /
+                                (sigma * sqrt(w * (1 - d)))
+
+    computed with the riptide prefix-sum "strided differences": one circular
+    prefix sum per profile, after which every boxcar sum is a two-index
+    difference.  Written this way the statistic is manifestly invariant to any
+    constant already removed from P, so the mean subtraction below is for
+    numerical conditioning only.
+
+    Because every (phase, width) trial is exactly N(0, 1), the peak over trials
+    follows analytic extreme-value statistics with a known, ~nbins-flat trials
+    factor: a fixed threshold means the same false-alarm rate at every width and
+    every profile length, with no sqrt(nbins) floor to normalize away (which the
+    older on-pulse metrics suffered, biasing a fixed threshold toward
+    high-bin-count profiles).
+
+    **Changed 2026-08-24.**  This used to subtract each profile's own *median*
+    and divide by sigma * sqrt(w), which is the above times a factor that is not
+    constant: sqrt(1 - d) under pure noise (median ~ 0), rising towards
+    1 / sqrt(1 - d) for a bright pulse (median tracks the off-pulse level).  The
+    median recovers nothing the boxcar had not already seen -- with the profile
+    mean pinned at 0 the off-pulse sum is identically -boxsum, so subtracting the
+    true off-pulse level is exactly a 1 / (1 - d) rescale -- while costing
+    detection power at every duty cycle above a few percent, and making the
+    metric's normalization depend on source brightness.  See
+    ``CoherentSearch.jl`` ``Summary_and_Future_Work.md`` Sec. 3.2.
 
     The per-bin noise `sigma` is estimated once for the whole block (1.4826 * MAD
     pooled over all profiles), not per profile: a per-profile MAD (only nbins
@@ -74,8 +104,8 @@ def snr_metric(profs, fsp=1.5, maxfrac=0.3):
     if sigma <= 0:
         return np.zeros(nprofs)
 
-    # Per-profile baseline: subtract each profile's own median.
-    prof0 = profs - np.median(profs, axis=1, keepdims=True)
+    # Conditioning only -- the statistic below is invariant to this (see above).
+    prof0 = profs - profs.mean(axis=1, keepdims=True)
 
     widths = boxcar_widths(nbins, fsp, maxfrac)
     wmax = widths[-1]
@@ -84,12 +114,15 @@ def snr_metric(profs, fsp=1.5, maxfrac=0.3):
     tiled = np.concatenate((prof0, prof0[:, :wmax]), axis=1)
     csum = np.zeros((nprofs, nbins + wmax + 1))
     np.cumsum(tiled, axis=1, out=csum[:, 1:])
+    stot = csum[:, nbins] - csum[:, 0]          # profile total, baseline removed
 
     best = np.full(nprofs, -np.inf)
     for w in widths:
         # All nbins phases at once; peak matched-filter S/N over phase for this width.
+        duty = w / nbins
         boxsums = csum[:, w : w + nbins] - csum[:, :nbins]
-        best = np.maximum(best, boxsums.max(axis=1) / (sigma * np.sqrt(w)))
+        cand = (boxsums.max(axis=1) - duty * stot) / (sigma * np.sqrt(w * (1.0 - duty)))
+        best = np.maximum(best, cand)
     return best
 
 
